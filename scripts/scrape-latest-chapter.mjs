@@ -1,20 +1,5 @@
 #!/usr/bin/env node
 // scripts/scrape-latest-chapter.mjs
-//
-// Scrapes a chapter summary from a wiki page and POSTs it to the Supabase
-// Edge Function. Idempotent: tracks the last-ingested chapter title in
-// state.json so scheduled runs don't re-ingest the same chapter.
-//
-// Env:
-//   WIKI_URL             URL of the chapter page (or a hub page — see CHAPTER_LINK_SELECTOR).
-//   INGESTION_URL        Supabase Edge Function URL.
-//   SUPABASE_ANON_KEY    For the Authorization header.
-//
-// Optional selector overrides (defaults target Fandom / MediaWiki pages):
-//   TITLE_SELECTOR         default: "h1.page-header__title, #firstHeading, h1"
-//   SUMMARY_ANCHOR_ID      default: "Short_Summary"        (the <span id="..."> inside an <h2>)
-//   CHAPTER_LINK_SELECTOR  if set, treat WIKI_URL as a hub page and follow this link first.
-//   STATE_FILE             default: "state.json"
 
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -37,16 +22,26 @@ for (const [k, v] of Object.entries({ WIKI_URL, INGESTION_URL, SUPABASE_ANON_KEY
   }
 }
 
-// ---------- Fetch ----------------------------------------------------------
+// ---------- Fetch (FIXED FOR 403 FORBIDDEN) --------------------------------
 
 async function fetchHtml(url) {
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "LoreIngestionBot/1.0 (+github-actions)",
-      "Accept": "text/html,application/xhtml+xml",
+      // כאן היה השינוי הקריטי - התחפשות לדפדפן כרום אמיתי
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.google.com/",
+      "Cache-Control": "max-age=0"
     },
   });
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
+  
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error(`GET ${url} → 403 Forbidden. Cloudflare is blocking the bot. Use a real User-Agent.`);
+    }
+    throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
+  }
   return res.text();
 }
 
@@ -74,13 +69,14 @@ function extractSummary(html) {
   const title = $(TITLE_SELECTOR).first().text().trim();
   if (!title) throw new Error(`Title selector "${TITLE_SELECTOR}" matched nothing`);
 
-  // Find the heading that anchors the summary (usually <h2> with a <span id="Short_Summary">).
-  const anchor = $(`#${CSS.escape(SUMMARY_ANCHOR_ID)}`).first();
+  // Find the heading that anchors the summary.
+  // CSS.escape is not standard in Node environment without a library, so we use a safe selector
+  const anchor = $(`[id="${SUMMARY_ANCHOR_ID}"]`).first();
+  
   if (anchor.length === 0) {
-    throw new Error(`No element with id="${SUMMARY_ANCHOR_ID}" found`);
+    throw new Error(`No element with id="${SUMMARY_ANCHOR_ID}" found. Check if the Wiki uses this ID.`);
   }
 
-  // The <span> sits inside an <h2>. Walk forward through siblings until the next heading.
   const heading = anchor.closest("h1, h2, h3");
   const stopAt = /^h[1-3]$/i;
 
@@ -88,7 +84,6 @@ function extractSummary(html) {
   let node = heading.next();
   while (node.length > 0 && !stopAt.test(node.prop("tagName") ?? "")) {
     if (node.is("p")) {
-      // Strip citation superscripts like [1] that Fandom adds.
       node.find("sup, .reference").remove();
       const text = node.text().trim();
       if (text) paragraphs.push(text);
@@ -133,7 +128,6 @@ async function ingest({ title, summary, sourceUrl }) {
     throw new Error(`Ingestion POST → ${res.status}: ${body}`);
   }
   console.log(`✓ Ingested "${title}"`);
-  console.log(body);
 }
 
 // ---------- Main -----------------------------------------------------------
@@ -147,11 +141,11 @@ async function main() {
 
   const state = await loadState();
   if (state.lastTitle === title) {
-    console.log(`Skip: "${title}" already ingested on ${state.ingestedAt ?? "unknown"}`);
+    console.log(`Skip: "${title}" already ingested`);
     return;
   }
 
-  console.log(`New chapter: "${title}" (${summary.length} chars)`);
+  console.log(`New chapter found: "${title}"`);
   await ingest({ title, summary, sourceUrl: chapterUrl });
 
   await saveState({
