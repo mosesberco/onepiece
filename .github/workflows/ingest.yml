@@ -1,0 +1,51 @@
+name: Ingest Latest Chapter
+
+on:
+  schedule:
+    # Every hour. Adjust to your release cadence — weekly manga drops don't need hourly polling.
+    - cron: "0 * * * *"
+  workflow_dispatch: # manual trigger from the Actions tab
+
+permissions:
+  contents: write # needed to commit state.json back
+
+concurrency:
+  group: ingest-latest-chapter
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scrape and ingest
+        env:
+          WIKI_URL: ${{ vars.WIKI_URL }}
+          INGESTION_URL: ${{ secrets.INGESTION_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Optional overrides — uncomment if your wiki isn't Fandom-style:
+          # SUMMARY_ANCHOR_ID: ${{ vars.SUMMARY_ANCHOR_ID }}
+          # TITLE_SELECTOR: ${{ vars.TITLE_SELECTOR }}
+          # CHAPTER_LINK_SELECTOR: ${{ vars.CHAPTER_LINK_SELECTOR }}
+        run: node scripts/scrape-latest-chapter.mjs
+
+      - name: Commit state if changed
+        run: |
+          if [[ -n "$(git status --porcelain state.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "chore: update ingestion state [skip ci]"
+            git push
+          else
+            echo "No state changes."
+          fi
