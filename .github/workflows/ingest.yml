@@ -29,7 +29,7 @@ jobs:
 
       - name: Scrape and ingest
         env:
-          WIKI_URL: ${{ vars.WIKI_URL }}
+          WIKI_URL: ${{ secrets.WIKI_URL }}
           INGESTION_URL: ${{ secrets.INGESTION_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Optional overrides — uncomment if your wiki isn't Fandom-style:
