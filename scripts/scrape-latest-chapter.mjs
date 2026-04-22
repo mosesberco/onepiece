@@ -1,17 +1,41 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import axios from "axios";
+import neo4j from "neo4j-driver";
 
 const {
   WIKI_URL,
   INGESTION_URL,
   SUPABASE_ANON_KEY,
-  STATE_FILE = "state.json",
+  NEO4J_URI,
+  NEO4J_USERNAME,
+  NEO4J_PASSWORD
 } = process.env;
 
+// פונקציה לבדיקת המצב הקיים ב-Neo4j
+async function getLastChapterFromNeo4j() {
+  console.log("Checking last processed chapter in Neo4j...");
+  const driver = neo4j.driver(
+    NEO4J_URI,
+    neo4j.auth.basic(NEO4J_USERNAME, NEO4J_PASSWORD)
+  );
+  const session = driver.session();
 
-// פונקציה לשליחת הנתונים ל-Supabase
+  try {
+    const result = await session.run("MATCH (ch:Chapter) RETURN max(ch.number) as lastChapter");
+    const lastChapter = result.records[0].get("lastChapter");
+    // טיפול במקרה שהגרף ריק או מחזיר אובייקט Integer של Neo4j
+    const finalNumber = lastChapter ? (typeof lastChapter === 'object' ? lastChapter.toNumber() : lastChapter) : 0;
+    console.log(`Last chapter found in DB: ${finalNumber}`);
+    return finalNumber;
+  } catch (err) {
+    console.error("Could not fetch last chapter, starting from 0:", err.message);
+    return 0;
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
 async function fetchPageContent(title) {
   console.log(`Fetching content for: ${title}`);
   const contentUrl = `${WIKI_URL}?action=parse&page=${encodeURIComponent(title)}&prop=text&format=json&redirects=1`;
@@ -24,43 +48,35 @@ async function fetchPageContent(title) {
   
   const html = contentRes.data.parse.text["*"];
 
-  // 1. ניקוי רעשי HTML כבדים
   let cleanedHtml = html
-    .replace(/<aside[\s\S]*?<\/aside>/g, '') // הסרת ה-Infobox (הטבלה בצד)
-    .replace(/<div id="toc"[\s\S]*?<\/div>/g, '') // הסרת תוכן העניינים
-    .replace(/<style[\s\S]*?<\/style>/g, '') // הסרת CSS
-    .replace(/<script[\s\S]*?<\/script>/g, ''); // הסרת JS
+    .replace(/<aside[\s\S]*?<\/aside>/g, '')
+    .replace(/<div id="toc"[\s\S]*?<\/div>/g, '')
+    .replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<script[\s\S]*?<\/script>/g, '');
 
-  // 2. הפיכה לטקסט נקי
   let text = cleanedHtml
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 3. חילוץ חכם: אנחנו רוצים הכל מ-"Short Summary" ועד "Trivia"
   const sections = ["Short Summary", "Long Summary", "Quick Reference", "Characters"];
   let finalContent = "";
 
   for (const section of sections) {
     const startIndex = text.indexOf(section);
     if (startIndex !== -1) {
-      // לוקחים את הקטע מהכותרת ועד הכותרת הבאה (או עד סוף הטקסט)
       const subText = text.substring(startIndex);
-      finalContent += "\n\n" + subText.substring(0, 2000); // לוקחים נתח מכל סקשן
+      finalContent += "\n\n" + subText.substring(0, 2500); 
     }
   }
 
-  // 4. Fallback: אם משום מה לא מצאנו סקשנים, ניקח את כל הטקסט הנקי
   if (finalContent.length < 500) {
-    console.log("Sections not found clearly, using full cleaned text.");
-    finalContent = text.substring(0, 5000);
+    finalContent = text.substring(0, 6000);
   }
 
-  console.log(`Final processed text length: ${finalContent.length} characters.`);
   return { title, summary: finalContent };
 }
 
-// פונקציה לשליחת הנתונים ל-Supabase
 async function ingest({ title, summary }) {
   console.log(`Sending "${title}" to Supabase...`);
   const res = await axios.post(INGESTION_URL, 
@@ -73,42 +89,50 @@ async function ingest({ title, summary }) {
     }
   );
   console.log(`✓ Ingested: ${title}. Status: ${res.status}`);
+  return res.data;
 }
 
-// פונקציית ה-Main במצב Backfill (פרקים 1 עד 500)
 async function main() {
-  const startChapter = 1;
-  const endChapter = 500;
+  // בדיקה דינמית של נקודת ההתחלה
+  const lastInDB = await getLastChapterFromNeo4j();
+  const startChapter = lastInDB + 1;
+  const endChapter = 500; // היעד הנוכחי שלך
   
-  console.log(`🚀 Starting Massive Backfill: Chapters ${startChapter} to ${endChapter}`);
+  if (startChapter > endChapter) {
+    console.log("✅ All chapters up to 500 are already in the database. Nothing to do.");
+    return;
+  }
+
+  console.log(`🚀 Resuming Ingestion: Chapters ${startChapter} to ${endChapter}`);
 
   for (let i = startChapter; i <= endChapter; i++) {
     const title = `Chapter ${i}`;
     try {
       const data = await fetchPageContent(title);
       
-      // שולחים רק אם באמת מצאנו תוכן
       if (data.summary.length > 50) {
         await ingest(data);
       } else {
         console.error(`❌ Skipped ${title}: No meaningful content found.`);
       }
       
-      // המתנה של 2 שניות בין פרק לפרק כדי להיות בטוחים שלא נחסמים
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // המתנה של 2.5 שניות כדי לא לקבל Rate Limit מ-Claude
+      await new Promise(resolve => setTimeout(resolve, 2500));
       
       if (i % 5 === 0) {
-        console.log(`--- Progress Update: ${i}/${endChapter} chapters processed ---`);
+        console.log(`--- Progress Update: ${i}/${endChapter} processed ---`);
       }
       
     } catch (err) {
       console.error(`❌ Failed ${title}: ${err.message}`);
-      // המתנה ארוכה יותר במקרה של שגיאה לפני ניסיון חוזר
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      // אם הגענו ל-Rate Limit, כדאי לעצור את הריצה ולנסות שוב ב-Action הבא
+      if (err.response?.status === 429) {
+        console.error("Rate limit hit. Stopping to avoid ban.");
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
-  
-  console.log("\n✅ Mission Accomplished! 500 Chapters processed.");
 }
 
 main().catch(err => {
