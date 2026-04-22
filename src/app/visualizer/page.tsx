@@ -157,6 +157,7 @@ export default function VisualizerPage() {
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredLink, setHoveredLink] = useState<GraphLink | null>(null);
+  const [disabledRelationshipTypes, setDisabledRelationshipTypes] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: makeId(),
@@ -240,6 +241,23 @@ export default function VisualizerPage() {
     return map;
   }, [allData.nodes]);
 
+  const relationshipTypes = useMemo(() => {
+    return Array.from(new Set(allData.links.map((link) => link.type))).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }, [allData.links]);
+
+  useEffect(() => {
+    setDisabledRelationshipTypes((previous) =>
+      previous.filter((type) => relationshipTypes.includes(type)),
+    );
+  }, [relationshipTypes]);
+
+  const disabledRelationshipTypeSet = useMemo(
+    () => new Set(disabledRelationshipTypes),
+    [disabledRelationshipTypes],
+  );
+
   const degreeMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const link of allData.links) {
@@ -310,8 +328,12 @@ export default function VisualizerPage() {
   const lodStage = useMemo(() => getLodStage(zoomLevel), [zoomLevel]);
 
   const visibleLinks = useMemo(() => {
-    return visualData.links.filter((link) => isEdgeVisibleAtLod(link.type, lodStage));
-  }, [lodStage, visualData.links]);
+    return visualData.links.filter(
+      (link) =>
+        isEdgeVisibleAtLod(link.type, lodStage) &&
+        !disabledRelationshipTypeSet.has(link.type),
+    );
+  }, [disabledRelationshipTypeSet, lodStage, visualData.links]);
 
   const visibleLinkIds = useMemo(() => {
     return new Set(visibleLinks.map((link) => `${link.source}|${link.type}|${link.target}`));
@@ -548,17 +570,6 @@ export default function VisualizerPage() {
   );
 
   const isNodeVisibleForZoom = (nodeId: string): boolean => {
-    const nodeLabel = nodeLabelById.get(nodeId);
-    if (!nodeLabel) {
-      return false;
-    }
-    if (lodStage === 'global') {
-      return majorEntityNodeIds.has(nodeId);
-    }
-    if (lodStage === 'regional') {
-      return nodeLabel !== 'Chapter';
-    }
-    // Micro view shows all nodes.
     return true;
   };
 
@@ -574,6 +585,14 @@ export default function VisualizerPage() {
     : isChatCompact
       ? 'w-[280px]'
       : 'w-[360px]';
+
+  const toggleRelationshipType = (type: string) => {
+    setDisabledRelationshipTypes((previous) =>
+      previous.includes(type)
+        ? previous.filter((current) => current !== type)
+        : [...previous, type],
+    );
+  };
 
   const focusedRelationshipDetails = useMemo(() => {
     if (!focusedNodeId) {
@@ -634,6 +653,53 @@ export default function VisualizerPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </div>
+
+      <div className="pointer-events-auto absolute left-4 top-36 z-10 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-slate-700/60 bg-slate-900/80 px-4 py-3 shadow-xl backdrop-blur">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Relationship Types
+          </p>
+          <p className="text-[11px] text-slate-500">
+            {relationshipTypes.length - disabledRelationshipTypes.length}/{relationshipTypes.length}{' '}
+            shown
+          </p>
+        </div>
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setDisabledRelationshipTypes([])}
+            className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+          >
+            Show all
+          </button>
+          <button
+            type="button"
+            onClick={() => setDisabledRelationshipTypes([...relationshipTypes])}
+            className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+          >
+            Hide all
+          </button>
+        </div>
+        <div className="max-h-40 space-y-1 overflow-y-auto pr-1 text-xs">
+          {relationshipTypes.map((type) => {
+            const checked = !disabledRelationshipTypeSet.has(type);
+            return (
+              <label
+                key={type}
+                className="flex cursor-pointer items-center justify-between rounded px-1 py-1 text-slate-200 hover:bg-slate-800/70"
+              >
+                <span className="mr-2 truncate">{type}</span>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleRelationshipType(type)}
+                  className="accent-sky-400"
+                />
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -726,6 +792,7 @@ export default function VisualizerPage() {
           const graphNode = node as GraphNode & { x: number; y: number };
           const color = labelColorMap.get(graphNode.label) ?? FALLBACK_NODE_COLOR;
           const isHighlighted = highlightedNodeId === graphNode.id;
+          const isHovered = hoveredNodeId === graphNode.id;
           const isTopConnected = topConnectedNodeIds.has(graphNode.id);
           const isFocusConnected =
             !focusedNodeId || focusConnectedNodeIds.has(graphNode.id) || primaryNodeIds.has(graphNode.id);
@@ -766,29 +833,14 @@ export default function VisualizerPage() {
           }
 
           const chapterLabelScale = 2.6;
-          let shouldShowLabel = false;
-
-          if (lodStage === 'global') {
-            shouldShowLabel =
-              isHighlighted ||
-              majorEntityNodeIds.has(graphNode.id) ||
-              (graphNode.label === 'Chapter' && globalScale >= chapterLabelScale);
-          } else if (lodStage === 'regional') {
-            shouldShowLabel =
-              isHighlighted ||
-              isTopConnected ||
-              graphNode.label !== 'Chapter' ||
+          const shouldShowLabel =
+            isHighlighted ||
+            isHovered ||
+            (focusedNodeId !== null &&
+              isTopConnected &&
               (graphNode.label === 'Chapter'
                 ? globalScale >= chapterLabelScale
-                : globalScale >= MIN_LABEL_SCALE);
-          } else {
-            shouldShowLabel =
-              isHighlighted ||
-              isTopConnected ||
-              (graphNode.label === 'Chapter'
-                ? globalScale >= chapterLabelScale
-                : globalScale >= MIN_LABEL_SCALE);
-          }
+                : globalScale >= MIN_LABEL_SCALE));
 
           if (shouldShowLabel) {
             const desiredScreenFontSize = isHighlighted
@@ -884,7 +936,7 @@ export default function VisualizerPage() {
         }}
       />
 
-      {(hoveredLink || focusedNodeId) && (
+      {(hoveredLink || hoveredNodeId || focusedNodeId) && (
         <div className="pointer-events-none absolute bottom-24 left-4 z-20 max-h-64 w-[min(380px,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/90 p-3 text-xs shadow-xl backdrop-blur">
           {hoveredLink ? (
             <div>
@@ -903,6 +955,15 @@ export default function VisualizerPage() {
               {hoveredLink.description && (
                 <p className="mt-1 text-slate-300">{hoveredLink.description}</p>
               )}
+            </div>
+          ) : hoveredNodeId ? (
+            <div>
+              <p className="mb-1 font-semibold text-slate-100">Entity</p>
+              <p className="text-sky-300">{nodeNameById.get(hoveredNodeId) ?? hoveredNodeId}</p>
+              <p className="mt-1 text-slate-300">
+                Type: {nodeLabelById.get(hoveredNodeId) ?? 'Unknown'}
+              </p>
+              <p className="text-slate-400">Connections: {degreeMap.get(hoveredNodeId) ?? 0}</p>
             </div>
           ) : (
             <div>
