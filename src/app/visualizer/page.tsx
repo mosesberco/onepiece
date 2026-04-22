@@ -581,10 +581,10 @@ export default function VisualizerPage() {
   };
 
   const chatWidthClass = isChatMinimized
-    ? 'w-[220px]'
+    ? 'sm:w-[220px]'
     : isChatCompact
-      ? 'w-[280px]'
-      : 'w-[360px]';
+      ? 'sm:w-[280px]'
+      : 'sm:w-[360px]';
 
   const toggleRelationshipType = (type: string) => {
     setDisabledRelationshipTypes((previous) =>
@@ -621,8 +621,8 @@ export default function VisualizerPage() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-4 sm:p-6">
-        <div className="pointer-events-auto rounded-xl border border-slate-700/60 bg-slate-900/80 px-4 py-3 shadow-xl backdrop-blur">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-stretch gap-3 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:p-6">
+        <div className="pointer-events-auto rounded-xl border border-slate-700/60 bg-slate-900/80 px-3 py-2.5 shadow-xl backdrop-blur sm:px-4 sm:py-3">
           <div className="flex items-center gap-2">
             <Network className="h-4 w-4 text-sky-400" />
             <h1 className="text-sm font-semibold tracking-wide text-slate-100">
@@ -638,7 +638,7 @@ export default function VisualizerPage() {
           </p>
         </div>
 
-        <div className="pointer-events-auto rounded-xl border border-slate-700/60 bg-slate-900/80 px-4 py-3 shadow-xl backdrop-blur">
+        <div className="pointer-events-auto rounded-xl border border-slate-700/60 bg-slate-900/80 px-3 py-2.5 shadow-xl backdrop-blur sm:px-4 sm:py-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Node Labels
           </p>
@@ -656,7 +656,7 @@ export default function VisualizerPage() {
         </div>
       </div>
 
-      <div className="pointer-events-auto absolute left-4 top-36 z-10 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-slate-700/60 bg-slate-900/80 px-4 py-3 shadow-xl backdrop-blur">
+      <div className="pointer-events-auto absolute left-2 right-2 top-[10.5rem] z-10 rounded-xl border border-slate-700/60 bg-slate-900/80 px-3 py-2.5 shadow-xl backdrop-blur sm:left-4 sm:right-auto sm:top-36 sm:w-[min(360px,calc(100vw-2rem))] sm:px-4 sm:py-3">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Relationship Types
@@ -682,7 +682,7 @@ export default function VisualizerPage() {
             Hide all
           </button>
         </div>
-        <div className="max-h-40 space-y-1 overflow-y-auto pr-1 text-xs">
+        <div className="max-h-24 space-y-1 overflow-y-auto pr-1 text-xs sm:max-h-40">
           {relationshipTypes.map((type) => {
             const checked = !disabledRelationshipTypeSet.has(type);
             return (
@@ -937,7 +937,7 @@ export default function VisualizerPage() {
       />
 
       {(hoveredLink || hoveredNodeId || focusedNodeId) && (
-        <div className="pointer-events-none absolute bottom-24 left-4 z-20 max-h-64 w-[min(380px,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/90 p-3 text-xs shadow-xl backdrop-blur">
+        <div className="pointer-events-none absolute bottom-[8.5rem] left-2 right-2 z-20 max-h-48 overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/90 p-3 text-xs shadow-xl backdrop-blur sm:bottom-24 sm:left-4 sm:right-auto sm:max-h-64 sm:w-[min(380px,calc(100vw-2rem))]">
           {hoveredLink ? (
             <div>
               <p className="mb-1 font-semibold text-slate-100">Relationship</p>
@@ -991,8 +991,8 @@ export default function VisualizerPage() {
       )}
 
       <aside
-        className={`pointer-events-auto absolute bottom-24 right-4 z-20 flex ${chatWidthClass} flex-col overflow-hidden rounded-xl border border-slate-700/80 bg-slate-900/90 shadow-2xl backdrop-blur ${
-          isChatMinimized ? 'h-[60px]' : 'top-24'
+        className={`pointer-events-auto absolute bottom-[4.75rem] left-2 right-2 z-20 flex w-auto ${chatWidthClass} flex-col overflow-hidden rounded-xl border border-slate-700/80 bg-slate-900/90 shadow-2xl backdrop-blur sm:bottom-24 sm:left-auto sm:right-4 ${
+          isChatMinimized ? 'h-[56px] sm:h-[60px]' : 'h-[46vh] sm:top-24 sm:h-auto'
         }`}
       >
         <div className="flex items-center justify-between border-b border-slate-700/70 px-4 py-3">
@@ -1079,7 +1079,7 @@ export default function VisualizerPage() {
         )}
       </aside>
 
-      <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(760px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-slate-700/80 bg-slate-900/90 px-4 py-3 shadow-xl backdrop-blur">
+      <div className="pointer-events-auto absolute bottom-2 left-2 right-2 z-20 rounded-xl border border-slate-700/80 bg-slate-900/90 px-3 py-2.5 shadow-xl backdrop-blur sm:bottom-4 sm:left-1/2 sm:right-auto sm:w-[min(760px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:px-4 sm:py-3">
         <div className="mb-2 mt-3 flex items-center justify-between text-xs text-slate-300">
           <span className="font-medium">Graph Padding</span>
           <span>{graphPadding.toFixed(1)}x</span>
