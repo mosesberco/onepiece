@@ -96,7 +96,7 @@ async function main() {
   // בדיקה דינמית של נקודת ההתחלה
   const lastInDB = await getLastChapterFromNeo4j();
   const startChapter = lastInDB + 1;
-  const endChapter = 500; // היעד הנוכחי שלך
+  const endChapter = 1200; // היעד הנוכחי שלך
   
   if (startChapter > endChapter) {
     console.log("✅ All chapters up to 500 are already in the database. Nothing to do.");
