@@ -14,6 +14,7 @@ type GraphLink = {
   source: string;
   target: string;
   type: string;
+  description?: string;
 };
 
 type Neo4jNode = {
@@ -25,6 +26,7 @@ type Neo4jNode = {
 
 type Neo4jRelationship = {
   type?: string;
+  properties?: Record<string, unknown>;
 };
 
 type Neo4jIntegerLike = {
@@ -88,6 +90,15 @@ const extractChapter = (node: Neo4jNode): number | null => {
   return null;
 };
 
+const getRelationshipDescription = (relationship: Neo4jRelationship): string | undefined => {
+  const description = relationship.properties?.description;
+  if (typeof description !== 'string') {
+    return undefined;
+  }
+  const trimmed = description.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export async function GET() {
   let driver: Driver | null = null;
   let session: Session | null = null;
@@ -97,7 +108,7 @@ export async function GET() {
     session = createNeo4jSession(driver);
 
     const result = await session.run(
-      'MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 300',
+      'MATCH (n)-[r]->(m) RETURN n, r, m ',
     );
 
     const nodesMap = new Map<string, GraphNode>();
@@ -134,6 +145,7 @@ export async function GET() {
           source: sourceId,
           target: targetId,
           type: r.type ?? 'RELATED_TO',
+          description: getRelationshipDescription(r),
         });
       }
     }
