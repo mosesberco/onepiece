@@ -1,51 +1,11 @@
 import { type Driver, type Session } from 'neo4j-driver';
 import { createNeo4jDriver, createNeo4jSession } from '@/lib/neo4j';
+import {
+  type Neo4jGraphRow,
+  transformNeo4jRowsToForceGraph,
+} from '@/lib/graph-transform';
 
 export const runtime = 'nodejs';
-
-type GraphNode = {
-  id: string;
-  name: string;
-  label: string;
-};
-
-type GraphLink = {
-  source: string;
-  target: string;
-  type: string;
-  description?: string;
-};
-
-type Neo4jNode = {
-  elementId?: string;
-  identity?: { toString: () => string };
-  labels?: string[];
-  properties?: Record<string, unknown>;
-};
-
-type Neo4jRelationship = {
-  type?: string;
-  properties?: Record<string, unknown>;
-};
-
-const getNodeId = (node: Neo4jNode): string => {
-  return node.elementId ?? node.identity?.toString() ?? '';
-};
-
-const getNodeName = (node: Neo4jNode): string => {
-  const props = node.properties ?? {};
-  const fallbackLabel = node.labels?.[0] ?? 'Node';
-  return String(props.name ?? props.title ?? props.id ?? fallbackLabel);
-};
-
-const getRelationshipDescription = (relationship: Neo4jRelationship): string | undefined => {
-  const description = relationship.properties?.description;
-  if (typeof description !== 'string') {
-    return undefined;
-  }
-  const trimmed = description.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
 
 export async function GET() {
   let driver: Driver | null = null;
@@ -55,51 +15,38 @@ export async function GET() {
     driver = createNeo4jDriver();
     session = createNeo4jSession(driver);
 
-    const result = await session.run(
-      'MATCH (n)-[r]->(m) RETURN n, r, m ',
-    );
+    const result = await session.run(`
+      MATCH (s)-[r]->(t)
+      WHERE type(r) <> 'APPEARED_IN' OR (s:Chapter OR t:Chapter)
+      RETURN
+        id(s) AS sId,
+        s.name AS sName,
+        coalesce(labels(s)[1], labels(s)[0], 'Entity') AS sType,
+        size([(s)--() | 1]) AS sSize,
+        type(r) AS rType,
+        r.description AS rDesc,
+        r.strength AS rStrength,
+        id(t) AS tId,
+        t.name AS tName,
+        coalesce(labels(t)[1], labels(t)[0], 'Entity') AS tType,
+        size([(t)--() | 1]) AS tSize
+    `);
 
-    const nodesMap = new Map<string, GraphNode>();
-    const links: GraphLink[] = [];
+    const rows: Neo4jGraphRow[] = result.records.map((record) => ({
+      sId: record.get('sId'),
+      sName: record.get('sName'),
+      sType: record.get('sType'),
+      sSize: record.get('sSize'),
+      rType: record.get('rType'),
+      rDesc: record.get('rDesc'),
+      rStrength: record.get('rStrength'),
+      tId: record.get('tId'),
+      tName: record.get('tName'),
+      tType: record.get('tType'),
+      tSize: record.get('tSize'),
+    }));
 
-    for (const record of result.records) {
-      const n = record.get('n') as Neo4jNode;
-      const m = record.get('m') as Neo4jNode;
-      const r = record.get('r') as Neo4jRelationship;
-
-      const sourceId = getNodeId(n);
-      const targetId = getNodeId(m);
-
-      if (sourceId && !nodesMap.has(sourceId)) {
-        nodesMap.set(sourceId, {
-          id: sourceId,
-          name: getNodeName(n),
-          label: n.labels?.[0] ?? 'Node',
-        });
-      }
-
-      if (targetId && !nodesMap.has(targetId)) {
-        nodesMap.set(targetId, {
-          id: targetId,
-          name: getNodeName(m),
-          label: m.labels?.[0] ?? 'Node',
-        });
-      }
-
-      if (sourceId && targetId) {
-        links.push({
-          source: sourceId,
-          target: targetId,
-          type: r.type ?? 'RELATED_TO',
-          description: getRelationshipDescription(r),
-        });
-      }
-    }
-
-    return Response.json({
-      nodes: Array.from(nodesMap.values()),
-      links,
-    });
+    return Response.json(transformNeo4jRowsToForceGraph(rows));
   } catch (error) {
     console.error('Failed to fetch graph data:', error);
     return Response.json(
