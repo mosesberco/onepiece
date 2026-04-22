@@ -7,7 +7,6 @@ type GraphNode = {
   id: string;
   name: string;
   label: string;
-  chapter: number | null;
 };
 
 type GraphLink = {
@@ -29,19 +28,6 @@ type Neo4jRelationship = {
   properties?: Record<string, unknown>;
 };
 
-type Neo4jIntegerLike = {
-  toNumber: () => number;
-};
-
-const isNeo4jInteger = (value: unknown): value is Neo4jIntegerLike => {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'toNumber' in value &&
-    typeof (value as Neo4jIntegerLike).toNumber === 'function'
-  );
-};
-
 const getNodeId = (node: Neo4jNode): string => {
   return node.elementId ?? node.identity?.toString() ?? '';
 };
@@ -50,44 +36,6 @@ const getNodeName = (node: Neo4jNode): string => {
   const props = node.properties ?? {};
   const fallbackLabel = node.labels?.[0] ?? 'Node';
   return String(props.name ?? props.title ?? props.id ?? fallbackLabel);
-};
-
-const toFiniteNumber = (value: unknown): number | null => {
-  if (isNeo4jInteger(value)) {
-    const numberValue = value.toNumber();
-    return Number.isFinite(numberValue) ? numberValue : null;
-  }
-
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-};
-
-const extractChapter = (node: Neo4jNode): number | null => {
-  const props = node.properties ?? {};
-  const candidates: unknown[] = [
-    props.chapter,
-    props.firstChapter,
-    props.chapterNumber,
-    props.debutChapter,
-    props.chapter_start,
-  ];
-
-  for (const candidate of candidates) {
-    const chapter = toFiniteNumber(candidate);
-    if (chapter !== null) {
-      return chapter;
-    }
-  }
-
-  return null;
 };
 
 const getRelationshipDescription = (relationship: Neo4jRelationship): string | undefined => {
@@ -127,7 +75,6 @@ export async function GET() {
           id: sourceId,
           name: getNodeName(n),
           label: n.labels?.[0] ?? 'Node',
-          chapter: extractChapter(n),
         });
       }
 
@@ -136,7 +83,6 @@ export async function GET() {
           id: targetId,
           name: getNodeName(m),
           label: m.labels?.[0] ?? 'Node',
-          chapter: extractChapter(m),
         });
       }
 
